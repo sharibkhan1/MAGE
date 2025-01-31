@@ -112,7 +112,7 @@ export default function Home() {
   return (
     <div className="overflow-hidden sched3 flex items-center justify-center min-h-screen">
     
-    <div className="h-screen  w-screen p-4">
+    <div className="h-screen  w-screen flex flex-col items-center justify-start p-4">
     <header className="text-center mb-10">
           <h1 className="text-7xl font-bold text-gradient5 mb-4">
             <span className="text-gradient2">MAGE</span>  Dashboard
@@ -122,8 +122,8 @@ export default function Home() {
           </p>
         </header>
 
-      <div className="flex justify-end mb-4 mr-28">
-      <Button onClick={() => setShowForm(!showForm)}>
+        <div className=" absolute top-36 right-10">
+        <Button onClick={() => setShowForm(!showForm)}>
         {showForm ? "Close Form" : "Add Workflow"}
       </Button>
       </div>

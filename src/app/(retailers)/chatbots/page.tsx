@@ -1,19 +1,18 @@
 "use client"
 import React, { useState, useEffect,useRef  } from 'react';
 import axios from 'axios';
-import moment from 'moment';
-import { motion } from "framer-motion";
- // Import the paper plane icon from react-icons
  import { FaPaperPlane, FaUpload } from 'react-icons/fa'; // Importing the upload icon
  import Image from 'next/image';
  import { faPenToSquare, faTrash } from '@fortawesome/free-solid-svg-icons';
  import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { v4 as uuidv4 } from 'uuid'; 
 import { cn } from "@/lib/utils";
-import AnimatedGridPattern from '@/components/ui/animated-grid-pattern';
 import { Button } from '@/components/ui/button';
 import DotPattern from '@/components/ui/dots';
 import { toast } from 'sonner';
+import { arrayUnion, doc, arrayRemove, updateDoc, getDoc } from "firebase/firestore"; // Firestore functions
+import { db } from '@/app/firebase/config';
+import { useSession } from 'next-auth/react';
 
 interface Message {
   text: string;
@@ -30,7 +29,6 @@ interface ChatSession {
 
 const Chatbotss = () => {
   const [input, setInput] = useState<string>(""); // Typing input state
-  const [image, setImage] = useState<File | null>(null); // State for the selected image
   const textareaRef = useRef<HTMLTextAreaElement | null>(null); // Typing ref for textarea
   const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => {
     const storedSessions = localStorage.getItem('chatSessions');
@@ -42,10 +40,66 @@ const Chatbotss = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isBotTyping, setIsBotTyping] = useState<boolean>(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null); // State for the selected image
+  const { data: session } = useSession();
+
+  const fetchChatSessions = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      // Get the Firestore document for the current admin
+      const adminDocRef = doc(db, "retailers", session.user.id);
+      const adminDoc = await getDoc(adminDocRef);
+
+      if (adminDoc.exists()) {
+        const data = adminDoc.data();
+        const chatbotSessions = data?.chatbots || [];
+        setChatSessions(chatbotSessions);
+
+        // Set the first session as the active session by default
+        if (chatbotSessions.length > 0) {
+          setActiveSessionId(chatbotSessions[0].id);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching chat sessions:", error);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
-  }, [chatSessions]);
+    fetchChatSessions();
+  }, [session?.user?.id]);
+
+
+  useEffect(() => {
+    const fetchChatSessions = async () => {
+      if (!session?.user?.id) return;
+      const adminDocRef = doc(db, "retailers", session.user.id);
+
+      try {
+        const docSnap = await getDoc(adminDocRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const fetchedSessions = data.chatbots || [];
+          setChatSessions(fetchedSessions);
+
+          // Set the first session as active by default
+          if (fetchedSessions.length > 0) {
+            setActiveSessionId(fetchedSessions[0].id);
+          }
+        } else {
+          console.error("No document found for the current user.");
+        }
+      } catch (error) {
+        console.error("Error fetching chat sessions from Firestore:", error);
+      }
+    };
+
+    fetchChatSessions();
+  }, [db, session?.user?.id]);
+
+  // useEffect(() => {
+  //   localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
+  // }, [chatSessions]);
 
   const activeSession = chatSessions.find((session) => session.id === activeSessionId);
 
@@ -59,25 +113,77 @@ const Chatbotss = () => {
     }
   };
 
-  const handleNewChat = () => {
-    const newSessionId = uuidv4(); // Generate a unique ID
+  const handleNewChat = async () => {
+    const newSessionId = uuidv4(); // Generate a unique ID for the session
     const newSession: ChatSession = {
       id: newSessionId,
-      created_at: new Date().toISOString(), // Add created_at field
-      name: `Chat ${chatSessions.length + 1}`, // Name can still be based on the number of chats
+      created_at: new Date().toISOString(), // Timestamp for session creation
+      name: `Chat ${chatSessions.length + 1}`, // Dynamically name the chat
       messages: [{ text: "Hi there! How can I help you?", isBot: true }],
     };
+  
+    // Update state
     setChatSessions([...chatSessions, newSession]);
     setActiveSessionId(newSessionId);
+  
+    if (!session?.user?.id) return;
+  
+    try {
+      // Create a document reference in the "chatbots" collection inside "admins"
+      const adminDocRef = doc(db, "retailers", session.user.id);
+  
+      await updateDoc(adminDocRef, {
+        chatbots: arrayUnion({
+          id: newSession.id,
+          created_at: newSession.created_at,
+          name: newSession.name,
+          messages: newSession.messages,
+        }),
+      });
+  
+      console.log("Chat session created in Firestore!");
+    } catch (error) {
+      console.error("Error creating chat session in Firestore:", error);
+    }
   };
 
-  const handleDeleteChat = (id: string) => {
+  const handleDeleteChat = async (id: string) => {
     const updatedSessions = chatSessions.filter((session) => session.id !== id);
     setChatSessions(updatedSessions);
+  
+    // Update active session ID
     if (id === activeSessionId && updatedSessions.length > 0) {
       setActiveSessionId(updatedSessions[0].id);
     } else if (updatedSessions.length === 0) {
       setActiveSessionId(null);
+    }
+  
+    if (!session?.user?.id) return;
+  
+    try {
+      // Reference to the admin document
+      const adminDocRef = doc(db, "retailers", session.user.id);
+  
+      // Find the session to remove
+      const sessionToRemove = chatSessions.find((session) => session.id === id);
+      if (!sessionToRemove) {
+        console.error("Session to delete not found in local state.");
+        return;
+      }
+  
+      // Remove the session from Firestore using arrayRemove
+      await updateDoc(adminDocRef, {
+        chatbots: arrayRemove({
+          id: sessionToRemove.id,
+          created_at: sessionToRemove.created_at,
+          name: sessionToRemove.name,
+          messages: sessionToRemove.messages,
+        }),
+      });
+  
+      console.log("Chat session deleted from Firestore!");
+    } catch (error) {
+      console.error("Error deleting chat session from Firestore:", error);
     }
   };
 
@@ -87,18 +193,53 @@ const Chatbotss = () => {
     if (sessionToEdit) setEditedName(sessionToEdit.name);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (editedName.length > 15) {
       toast.error("Name cannot exceed 15 characters.");
       return;
     }
-    
-    const updatedSessions = chatSessions.map(session =>
+  
+    const updatedSessions = chatSessions.map((session) =>
       session.id === editingSessionId ? { ...session, name: editedName } : session
     );
+  
     setChatSessions(updatedSessions);
     setEditingSessionId(null);
+  
+    if (!session?.user?.id || !editingSessionId) return;
+  
+    try {
+      // Reference to the admin document
+      const adminDocRef = doc(db, "retailers", session.user.id);
+  
+      // Fetch the specific session to update
+      const sessionIndex = chatSessions.findIndex(
+        (session) => session.id === editingSessionId
+      );
+      if (sessionIndex === -1) {
+        console.error("Session not found");
+        return;
+      }
+  
+      // Update the specific session's name in Firestore
+      const updatedSessionData = {
+        ...chatSessions[sessionIndex],
+        name: editedName,
+      };
+  
+      await updateDoc(adminDocRef, {
+        chatbots: chatSessions.map((session) =>
+          session.id === editingSessionId ? updatedSessionData : session
+        ),
+      });
+  
+      console.log("Session name updated in Firestore!");
+    } catch (error) {
+      console.error("Error updating session name in Firestore:", error);
+      toast.error("Error updating session name. Please try again.");
+    }
   };
+  
 
   const handleMessageSend = async () => {
     if (input.trim() !== "" || selectedImage) { // Check if input or image exists
@@ -140,39 +281,180 @@ const Chatbotss = () => {
 
   const sendMessage = async (text: string, image: File | null) => {
     if (!activeSession) return;
-
-    const newMessages = [...activeSession.messages, { text, isBot: false, imageUrl: image ? URL.createObjectURL(image) : undefined }];
+  
+    // Static Q&A list
+    const qaList = [
+      { question: "How can I reset my password?", answer: "To reset your password, click on 'Forgot Password' and follow the instructions." },
+      { question: "What is your return policy?", answer: "Our return policy allows returns within 30 days of purchase." },
+      { question: "How can I track my order?", answer: "To track your order, visit your order page and click on 'Track Order'." },
+      { question: "H", answer: "To track on 'Track Order'." },
+      // Add more predefined Q&A here
+    ];
+  
+    // Construct a user message
+    const userMessage = { 
+      text, 
+      isBot: false, 
+    };
+  
+    const newMessages = [...activeSession.messages, userMessage];
     const updatedSession: ChatSession = { ...activeSession, messages: newMessages };
-
+  
+    // Update local state for chat sessions
     setChatSessions(chatSessions.map((session) =>
       session.id === activeSessionId ? updatedSession : session
     ));
-
-    console.log("Sending request to Flask API with query:", text);
+  
+    console.log("User sent:", text);
     setIsBotTyping(true);
-
+  
+    // Find the bot's response based on the user input
+    const botResponse = qaList.find(qa => qa.question.toLowerCase() === text.toLowerCase())?.answer;
+  
+    let botMessage;
+    if (botResponse) {
+      // If a matching question is found, respond with the static answer
+      botMessage = { text: botResponse, isBot: true };
+    } else {
+      // If no matching question, provide a default message
+      botMessage = { text: "I'm sorry, I didn't understand that.", isBot: true };
+    }
+  
+    // Add bot message to updated session
+    const updatedSessionWithBotMessage = {
+      ...updatedSession,
+      messages: [...newMessages, botMessage],
+    };
+  
+    // Update local state with the bot message
+    setChatSessions(chatSessions.map((session) =>
+      session.id === activeSessionId ? updatedSessionWithBotMessage : session
+    ));
+  
+    console.log("User message:", userMessage);
+    console.log("Bot response:", botMessage);
+  
+    // Ensure that the updated session data is valid and not undefined
+    if (!session?.user?.id || !updatedSessionWithBotMessage.messages) {
+      console.error("Invalid session data, cannot update chat session in Firestore.");
+      setIsBotTyping(false);
+      return;
+    }
+  
+    const adminDocRef = doc(db, "retailers", session.user.id);
+  
     try {
-      const res = await axios.post<{ result: string }>('https://4f5f-35-230-57-226.ngrok-free.app/generate', {
-        query: text,
-      });
-
-      console.log("Received response from Flask API:", res.data);
-
-      const botMessage = { text: res.data.result, isBot: true };
-      const updatedSessionWithBotMessage = {
-        ...updatedSession,
-        messages: [...newMessages, botMessage],
-      };
-
-      setChatSessions(chatSessions.map((session) =>
-        session.id === activeSessionId ? updatedSessionWithBotMessage : session
-      ));
+      // Fetch the specific chat session from Firestore
+      const chatRef = doc(db, "retailers", session.user.id);
+      const chatDoc = await getDoc(chatRef);
+  
+      if (chatDoc.exists()) {
+        const chatData = chatDoc.data();
+        const chatbots = chatData?.chatbots || [];
+        // Find the specific session to update
+        const updatedChatbots = chatbots.map((chatbot: any) => {
+          if (chatbot.id === activeSessionId) {
+            return {
+              ...chatbot,
+              messages: updatedSessionWithBotMessage.messages, // Directly assign the updated messages array
+            };
+          }
+          return chatbot;
+        });
+  
+        console.log("Updated chatbots:", updatedChatbots);
+  
+        // Check for invalid messages data before saving
+        if (!updatedSessionWithBotMessage.messages || updatedSessionWithBotMessage.messages.length === 0) {
+          console.error("Messages are empty or undefined.");
+          return;
+        }
+  
+        // Update the chatbots array with the updated session messages
+        await updateDoc(chatRef, { chatbots: updatedChatbots });
+  
+        console.log("Chat session updated in Firestore!");
+      } else {
+        console.log("No such document found.");
+      }
     } catch (error) {
-      console.error('Error fetching data from Flask API', error);
+      console.error('Error updating chat session in Firestore:', error);
     } finally {
       setIsBotTyping(false);
     }
   };
+   
+  // const sendMessage = async (text: string, image: File | null) => {
+  //   if (!activeSession) return;
+  
+  //   // Construct a user message
+  //   const userMessage = { 
+  //     text, 
+  //     isBot: false, 
+  //     imageUrl: image ? URL.createObjectURL(image) : undefined 
+  //   };
+  
+  //   const newMessages = [...activeSession.messages, userMessage];
+  //   const updatedSession: ChatSession = { ...activeSession, messages: newMessages };
+  
+  //   // Update local state for chat sessions
+  //   setChatSessions(chatSessions.map((session) =>
+  //     session.id === activeSessionId ? updatedSession : session
+  //   ));
+  
+  //   // Log message details
+  //   console.log("Sending request to Flask API with query:", text);
+  //   setIsBotTyping(true);
+  
+  //   // Send the message to the API and fetch the bot's response
+  //   try {
+  //     const res = await axios.post<{ result: string }>('https://4f5f-35-230-57-226.ngrok-free.app/generate', {
+  //       query: text,
+  //     });
+  
+  //     console.log("Received response from Flask API:", res.data);
+  
+  //     // Create a bot message using the response
+  //     const botMessage = { 
+  //       text: res.data.result, 
+  //       isBot: true 
+  //     };
+  
+  //     const updatedSessionWithBotMessage = {
+  //       ...updatedSession,
+  //       messages: [...newMessages, botMessage],
+  //     };
+  
+  //     // Update local state with the bot message
+  //     setChatSessions(chatSessions.map((session) =>
+  //       session.id === activeSessionId ? updatedSessionWithBotMessage : session
+  //     ));
+  // console.log("userr",newMessages)
+  // console.log("bot",botMessage)
+  //     // Now, save the messages in Firestore, including both the user and bot messages
+  //     if (!session?.user?.id) return;
+  //     const adminDocRef = doc(db, "admins", session.user.id);
+  
+  //     await updateDoc(adminDocRef, {
+  //       chatbots: arrayUnion({
+  //         id: activeSessionId,
+  //         created_at: activeSession.created_at,
+  //         name: activeSession.name,
+  //         messages: [
+  //           ...newMessages,
+  //           botMessage,
+  //         ],
+  //       }),
+  //     });
+  
+  //     console.log("Chat session updated in Firestore!");
+  //   } catch (error) {
+  //     console.error('Error fetching data from Flask API:', error);
+  //   } finally {
+  //     setIsBotTyping(false);
+  //   }
+  // };
+  
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -180,6 +462,7 @@ const Chatbotss = () => {
     }
   };
 
+  
   return (
 <div className="min-h-screen flex bg-black bg-cover bg-center scrollbar-hidden" style={{ backgroundImage: `url('../../public/96c2e8fda549ae99693e87ffeba899ef.jpg')` }}>
        {/* Sidebar toggle button for small screens */}
@@ -217,9 +500,9 @@ const Chatbotss = () => {
         <Button onClick={handleNewChat} variant="default" className="mb-4 mt-5 text-[##333333] hover:bg-gray-300 dark:text-white  dark:hover:bg-gray-800 sticky crimson-dusk  px-8 py-0.5  border-2 border-black dark:border-black uppercase text-black transition duration-200 text-sm shadow-[1px_1px_rgba(0,0,0),2px_2px_rgba(0,0,0),3px_3px_rgba(0,0,0),4px_4px_rgba(0,0,0),5px_5px_0px_0px_rgba(0,0,0)] dark:shadow-[1px_1px_rgba(255,255,255),2px_2px_rgba(255,255,255),3px_3px_rgba(255,255,255),4px_4px_rgba(255,255,255),5px_5px_0px_0px_rgba(255,255,255)]">
         <Image src="/add-30.png" className='h-4 w-4 mr-4' alt="Add button" width={40} height={40} /><p className='text-sm font-medium'>New Chat</p>
         </Button>
-        <Button onClick={handleClearStorage} variant="default" className="mb-6 text-[##333333] hover:bg-gray-300 dark:text-white  dark:hover:bg-gray-800 sticky crimson-dusk  px-8 py-0.5  border-2 border-black dark:border-black uppercase text-black transition duration-200 text-sm shadow-[1px_1px_rgba(0,0,0),2px_2px_rgba(0,0,0),3px_3px_rgba(0,0,0),4px_4px_rgba(0,0,0),5px_5px_0px_0px_rgba(0,0,0)] dark:shadow-[1px_1px_rgba(255,255,255),2px_2px_rgba(255,255,255),3px_3px_rgba(255,255,255),4px_4px_rgba(255,255,255),5px_5px_0px_0px_rgba(255,255,255)]">
+        {/* <Button onClick={handleClearStorage} variant="default" className="mb-6 text-[##333333] hover:bg-gray-300 dark:text-white  dark:hover:bg-gray-800 sticky crimson-dusk  px-8 py-0.5  border-2 border-black dark:border-black uppercase text-black transition duration-200 text-sm shadow-[1px_1px_rgba(0,0,0),2px_2px_rgba(0,0,0),3px_3px_rgba(0,0,0),4px_4px_rgba(0,0,0),5px_5px_0px_0px_rgba(0,0,0)] dark:shadow-[1px_1px_rgba(255,255,255),2px_2px_rgba(255,255,255),3px_3px_rgba(255,255,255),4px_4px_rgba(255,255,255),5px_5px_0px_0px_rgba(255,255,255)]">
         Clear Storage
-        </Button>
+        </Button> */}
       <div className="space-y-5 flex-grow mt-9 overflow-y-auto max-h-[20rem] mb-24">
         {chatSessions.map(session => (
      <div

@@ -28,8 +28,8 @@ const Page = () => {
         style={{
           boxShadow: "inset 0 -50px 70px 0px black", // inner bottom shadow
         }}></div>
-<h3 className="text-2xl text-start font-bold mb-4">Best for Price</h3>
-<h3 className="text-2xl text-start font-bold mb-4">₹5999</h3>
+<h3 className="text-2xl text-start border-2 rounded-full night-shadow-essence border-white w-max px-2 pb-1 font-semibold mb-4">Best for Price</h3>
+<h3 className="text-4xl text-start font-bold mb-4">₹5999/{" "}<span className='text-2xl font-semibold'>per month</span></h3>
       <ul className="space-y-2 mt-6 p-5">
         <li className="flex items-center gap-2">
           <FaCheck className="text-green-500" />
@@ -78,8 +78,8 @@ const Page = () => {
         style={{
             boxShadow: "inset 0 -50px 70px 0px black", // inner bottom shadow
         }}></div>
- <h3 className="text-2xl text-start font-bold mb-4">Business Plan</h3>
- <h3 className="text-2xl text-start font-bold mb-4">custom ₹</h3>
+ <h3 className="text-2xl text-start border-2 rounded-full night-shadow-essence border-white w-max px-2 pb-1 font-semibold mb-4">Business Plan</h3>
+ <h3 className="text-4xl text-start font-bold mb-4">custom ₹/{" "}<span className='text-2xl font-semibold'>per month</span></h3>
  <ul className="space-y-2 mt-6 p-5">
  <li className="flex items-center gap-2">
           <FaCheck className="text-green-500" />

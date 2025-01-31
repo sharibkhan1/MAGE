@@ -34,7 +34,7 @@ const MenuOptions = (props: Props) => {
   }, []);
   const handleLogout = () => {
     signOut({
-      callbackUrl: '/signin',
+      callbackUrl: '/',
     });
   };
   return (
