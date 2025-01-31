@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { Button } from '@/components/ui/button';
 import DotPattern from '@/components/ui/dots';
 import { toast } from 'sonner';
-import { arrayUnion, doc, arrayRemove, updateDoc, getDoc } from "firebase/firestore"; // Firestore functions
+import { arrayUnion, doc, arrayRemove,onSnapshot, updateDoc, getDoc } from "firebase/firestore"; // Firestore functions
 import { db } from '@/app/firebase/config';
 import { useSession } from 'next-auth/react';
 
@@ -41,6 +41,10 @@ const Chatbotss = () => {
   const [isBotTyping, setIsBotTyping] = useState<boolean>(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null); // State for the selected image
   const { data: session } = useSession();
+  const [adminCreateData, setAdminCreateData] = useState<any>({}); // Store adminCreate data
+  const [selectedAdminDetails, setSelectedAdminDetails] = useState<any | null>(null); // Data for the selected admin
+const [ loading, setLoading] = useState<boolean>(true)
+const [selectedAdmin, setSelectedAdmin] = useState<any | null>(null); // Selected admin
 
   const fetchChatSessions = async () => {
     if (!session?.user?.id) return;
@@ -79,7 +83,7 @@ const Chatbotss = () => {
         const docSnap = await getDoc(adminDocRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const fetchedSessions = data.chatbots || [];
+          const fetchedSessions = data.chatbots || {};
           setChatSessions(fetchedSessions);
 
           // Set the first session as active by default
@@ -91,12 +95,34 @@ const Chatbotss = () => {
         }
       } catch (error) {
         console.error("Error fetching chat sessions from Firestore:", error);
+      }finally {
+        setLoading(false);
       }
     };
 
     fetchChatSessions();
   }, [db, session?.user?.id]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const adminDocRef = doc(db, "retailers", session.user.id);
+    const unsubscribe = onSnapshot(adminDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setAdminCreateData(data?.adminCreate ||{});
+      }
+    });
+
+    return () => unsubscribe(); // Clean up listener on unmount
+  }, [session?.user?.id]);
+
+  const handleAdminSelect = (adminId: string) => {
+    const selectedAdmin = adminCreateData[adminId]; // Get the selected admin object
+    setSelectedAdmin(selectedAdmin);
+    setSelectedAdminDetails(selectedAdmin ? Object.values(selectedAdmin) : null); // Convert to an array if needed
+  };
+  
   // useEffect(() => {
   //   localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
   // }, [chatSessions]);
@@ -129,7 +155,7 @@ const Chatbotss = () => {
     if (!session?.user?.id) return;
   
     try {
-      // Create a document reference in the "chatbots" collection inside "admins"
+      // Create a document reference in the "chatbots" collection inside "retailers"
       const adminDocRef = doc(db, "retailers", session.user.id);
   
       await updateDoc(adminDocRef, {
@@ -433,7 +459,7 @@ const Chatbotss = () => {
   // console.log("bot",botMessage)
   //     // Now, save the messages in Firestore, including both the user and bot messages
   //     if (!session?.user?.id) return;
-  //     const adminDocRef = doc(db, "admins", session.user.id);
+  //     const adminDocRef = doc(db, "retailers", session.user.id);
   
   //     await updateDoc(adminDocRef, {
   //       chatbots: arrayUnion({
@@ -542,6 +568,21 @@ const Chatbotss = () => {
           </div>
         ))}
       </div>
+      <div className="space-y-5 flex-grow overflow-y-auto max-h-[20rem]">
+      <h2 className="text-lg font-bold">Management List</h2>
+      
+      {Object.entries(adminCreateData).map(([adminId, adminData], index) => (
+  <div
+    key={index}
+    className={`p-2 cursor-pointer bg-black rounded-xl text-white transition-all 
+      ${selectedAdmin === adminData ? "border-t-2 border-b-2 border-white" : "border-white border-b-2"}`}
+    onClick={() => handleAdminSelect(adminId)} // Trigger selection on click
+  >
+    {decodeURIComponent(adminId)} {/* Decode URL-encoded names if needed */}
+  </div>
+))}
+
+    </div>
     </div>
   </div>
   {/* This is ChatScreen */}
@@ -549,9 +590,25 @@ const Chatbotss = () => {
   
   <div className="flex-1 relative overflow-x-hidden  p-4 ">
 
+
     {activeSession ? (
       <>
-        {activeSession.messages.map((message, i) => (
+                {selectedAdminDetails &&
+          selectedAdminDetails.map((card: any, index: number) => (
+            <div key={index} className="border-b pb-3">
+              <h5 className="font-medium">
+                {card.cardTitle} - {card.cardName}
+              </h5>
+              <ul>
+                {card.fieldsValue?.map((field: any, idx: number) => (
+                  <li key={idx} className="pl-4">
+                    <strong>{field.fieldName}:</strong> {field.value}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        {/* {activeSession.messages.map((message, i) => (
           <div
             key={i}
             className={`flex ${message.isBot ? "justify-start" : "justify-end"} mb-4`}
@@ -585,7 +642,7 @@ const Chatbotss = () => {
         ))}
         {isBotTyping && (
           <div className="p-2 max-w-[5rem] bg-[#853F67] text-white rounded-lg"><p  >...</p></div>
-        )}
+        )} */}
       </>
     ) : (
       <p className='flex items-center justify-center' >No active chat session</p>
